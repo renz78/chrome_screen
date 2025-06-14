@@ -71,10 +71,6 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        chrome.storage.sync.set({autoCapture: isEnabled}, () => {
-            console.log('Збережено autoCapture:', isEnabled);
-        });
-        
         // Відправити повідомлення до background script
         chrome.runtime.sendMessage({
             action: 'toggleAutoCapture',
@@ -88,6 +84,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     showStatus(response.message, 'success');
                 } else {
                     showStatus(response.error || 'Помилка налаштування', 'error');
+                    autoCapture.checked = false; // Скидаємо checkbox при помилці
                 }
             }
         });
@@ -99,10 +96,6 @@ document.addEventListener('DOMContentLoaded', function() {
     intervalSelect.addEventListener('change', function() {
         const interval = parseInt(intervalSelect.value);
         console.log('Зміна інтервалу:', interval);
-        
-        chrome.storage.sync.set({captureInterval: interval}, () => {
-            console.log('Збережено captureInterval:', interval);
-        });
         
         if (autoCapture.checked) {
             chrome.runtime.sendMessage({
@@ -212,7 +205,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
     
-    // Додаємо тестову кнопку для дебагу (тимчасово)
+    // Кнопка для тестування автоскріншотів
     const testBtn = document.createElement('button');
     testBtn.textContent = 'Тест автоскріншотів';
     testBtn.style.marginTop = '10px';
@@ -222,13 +215,41 @@ document.addEventListener('DOMContentLoaded', function() {
         chrome.runtime.sendMessage({action: 'testAutoScreenshot'}, (response) => {
             console.log('Тест результат:', response);
             if (response) {
-                const alarmStatus = response.alarmActive ? 'Активний' : 'Неактивний';
+                const alarmStatus = response.alarmActive ? 'Активний' : 'Неактивный';
                 const nextAlarm = response.alarmInfo ? new Date(response.alarmInfo.scheduledTime).toLocaleTimeString() : 'Невідомо';
                 alert(`Налаштування: ${JSON.stringify(response.settings)}\nAlarm: ${alarmStatus}\nНаступний скріншот: ${nextAlarm}`);
             }
         });
     });
     
-    // Додаємо тестову кнопку до контейнера (розкоментуйте для дебагу)
-    document.querySelector('.container').appendChild(testBtn);
+    // Кнопка для очищення всіх налаштувань та alarm'ів
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = 'Очистити все';
+    clearBtn.style.marginTop = '5px';
+    clearBtn.style.fontSize = '12px';
+    clearBtn.style.padding = '5px';
+    clearBtn.style.backgroundColor = '#dc3545';
+    clearBtn.addEventListener('click', async () => {
+        if (confirm('Очистити всі налаштування та зупинити автоскріншоти?')) {
+            // Очищаємо storage
+            await chrome.storage.sync.clear();
+            
+            // Зупиняємо автоскріншоти
+            chrome.runtime.sendMessage({
+                action: 'toggleAutoCapture',
+                enabled: false,
+                interval: 60,
+                uploadUrl: ''
+            }, (response) => {
+                console.log('Очищення:', response);
+                // Перезавантажуємо popup
+                location.reload();
+            });
+        }
+    });
+    
+    // Додаємо кнопки до контейнера
+    const container = document.querySelector('.container');
+    container.appendChild(testBtn);
+    container.appendChild(clearBtn);
 });

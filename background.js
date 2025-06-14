@@ -1,11 +1,5 @@
 // background.js - Service Worker для розширення Chrome з використанням chrome.alarms
 
-let autoScreenshotSettings = {
-    enabled: false,
-    interval: 60, // секунди
-    uploadUrl: ''
-};
-
 const ALARM_NAME = 'autoScreenshot';
 
 // Ініціалізація при запуску
@@ -16,24 +10,28 @@ async function initializeAutoScreenshot() {
     try {
         const result = await chrome.storage.sync.get(['autoCapture', 'captureInterval', 'uploadUrl']);
         
-        console.log('Завантажені налаштування:', result);
+        console.log('Завантажені налаштування при ініціалізації:', result);
         
+        // Перевіряємо чи потрібно запустити автоскріншоти
         if (result.autoCapture && result.uploadUrl) {
-            autoScreenshotSettings = {
-                enabled: result.autoCapture,
-                interval: result.captureInterval || 60,
-                uploadUrl: result.uploadUrl
-            };
-            
-            console.log('Налаштування автоскріншотів:', autoScreenshotSettings);
-            
-            if (autoScreenshotSettings.enabled) {
-                await startAutoScreenshot();
-            }
+            await startAutoScreenshot(result.captureInterval || 60, result.uploadUrl);
+        } else {
+            // Якщо налаштування не активні, зупиняємо будь-які існуючі alarm'и
+            await stopAutoScreenshot();
         }
     } catch (error) {
         console.error('Помилка ініціалізації:', error);
     }
+}
+
+// Функція для отримання поточних налаштувань
+async function getCurrentSettings() {
+    const result = await chrome.storage.sync.get(['autoCapture', 'captureInterval', 'uploadUrl']);
+    return {
+        enabled: result.autoCapture || false,
+        interval: result.captureInterval || 60,
+        uploadUrl: result.uploadUrl || ''
+    };
 }
 
 // Обробник повідомлень
@@ -62,18 +60,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
     
     if (request.action === 'quickScreenshot') {
-        if (autoScreenshotSettings.uploadUrl) {
-            captureAndUpload(autoScreenshotSettings.uploadUrl)
-                .then(result => console.log('Швидкий скріншот:', result))
-                .catch(error => console.error('Помилка швидкого скріншота:', error));
-        }
+        getCurrentSettings().then(settings => {
+            if (settings.uploadUrl) {
+                captureAndUpload(settings.uploadUrl)
+                    .then(result => console.log('Швидкий скріншот:', result))
+                    .catch(error => console.error('Помилка швидкого скріншота:', error));
+            }
+        });
         return true;
     }
     
     if (request.action === 'testAutoScreenshot') {
-        chrome.alarms.get(ALARM_NAME, (alarm) => {
+        chrome.alarms.get(ALARM_NAME, async (alarm) => {
+            const settings = await getCurrentSettings();
             sendResponse({
-                settings: autoScreenshotSettings,
+                settings: settings,
                 alarmActive: !!alarm,
                 alarmInfo: alarm
             });
@@ -83,14 +84,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 async function handleToggleAutoCapture(request) {
-    autoScreenshotSettings.enabled = request.enabled;
-    autoScreenshotSettings.interval = request.interval;
-    autoScreenshotSettings.uploadUrl = request.uploadUrl;
+    console.log('Перемикання автоскріншотів:', request);
     
-    console.log('Перемикання автоскріншотів:', autoScreenshotSettings);
+    // Зберігаємо налаштування в chrome.storage
+    await chrome.storage.sync.set({
+        autoCapture: request.enabled,
+        captureInterval: request.interval,
+        uploadUrl: request.uploadUrl
+    });
+    
+    console.log('Налаштування збережено в storage');
     
     if (request.enabled && request.uploadUrl) {
-        await startAutoScreenshot();
+        await startAutoScreenshot(request.interval, request.uploadUrl);
         return {success: true, message: 'Автоматичні скріншоти увімкнено'};
     } else {
         await stopAutoScreenshot();
@@ -99,32 +105,35 @@ async function handleToggleAutoCapture(request) {
 }
 
 async function handleUpdateInterval(request) {
-    autoScreenshotSettings.interval = request.interval;
     console.log('Оновлення інтервалу:', request.interval);
     
-    if (autoScreenshotSettings.enabled) {
+    // Зберігаємо новий інтервал
+    await chrome.storage.sync.set({captureInterval: request.interval});
+    
+    const settings = await getCurrentSettings();
+    if (settings.enabled && settings.uploadUrl) {
         await stopAutoScreenshot();
-        await startAutoScreenshot();
+        await startAutoScreenshot(request.interval, settings.uploadUrl);
     }
     return {success: true};
 }
 
-async function startAutoScreenshot() {
+async function startAutoScreenshot(interval, uploadUrl) {
     try {
         // Спочатку зупиняємо попередній alarm
         await stopAutoScreenshot();
         
-        if (!autoScreenshotSettings.uploadUrl) {
+        if (!uploadUrl) {
             console.error('URL для відправки не встановлено');
             return;
         }
         
-        console.log(`Запуск автоматичних скріншотів кожні ${autoScreenshotSettings.interval} секунд`);
+        console.log(`Запуск автоматичних скріншотів кожні ${interval} секунд на URL: ${uploadUrl}`);
         
         // Створюємо alarm для періодичного виконання
         await chrome.alarms.create(ALARM_NAME, {
-            delayInMinutes: autoScreenshotSettings.interval / 60,
-            periodInMinutes: autoScreenshotSettings.interval / 60
+            delayInMinutes: interval / 60,
+            periodInMinutes: interval / 60
         });
         
         console.log('Alarm створено успішно');
@@ -165,13 +174,24 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 async function performAutoScreenshot() {
     try {
-        if (!autoScreenshotSettings.enabled || !autoScreenshotSettings.uploadUrl) {
-            console.log('Автоскріншоти вимкнені або URL не встановлено');
+        // ВАЖЛИВО: Завжди читаємо налаштування з storage, а не з змінних в пам'яті
+        const settings = await getCurrentSettings();
+        console.log('Поточні налаштування для автоскріншота:', settings);
+        
+        if (!settings.enabled) {
+            console.log('Автоскріншоти вимкнені, зупиняємо alarm');
+            await stopAutoScreenshot();
+            return;
+        }
+        
+        if (!settings.uploadUrl) {
+            console.log('URL не встановлено, зупиняємо alarm');
+            await stopAutoScreenshot();
             return;
         }
         
         console.log('Створення автоматичного скріншота...');
-        const result = await captureAndUpload(autoScreenshotSettings.uploadUrl);
+        const result = await captureAndUpload(settings.uploadUrl);
         
         if (result.success) {
             console.log('Автоматичний скріншот успішно відправлено');
@@ -180,25 +200,27 @@ async function performAutoScreenshot() {
             try {
                 await chrome.notifications.create({
                     type: 'basic',
-                    iconUrl: '/icon.png',
+                    iconUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
                     title: 'Screenshot Sender',
-                    message: 'Скріншот автоматично відправлено'
+                    message: `Автоскріншот відправлено о ${new Date().toLocaleTimeString()}`
                 });
             } catch (notifError) {
-                // Створюємо нотифікацію з data URL іконкою якщо звичайна не працює
-                try {
-                    await chrome.notifications.create({
-                        type: 'basic',
-                        iconUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-                        title: 'Screenshot Sender',
-                        message: 'Скріншот автоматично відправлено'
-                    });
-                } catch (e) {
-                    console.log('Нотифікації недоступні:', e);
-                }
+                console.log('Нотифікації недоступні:', notifError);
             }
         } else {
             console.error('Помилка автоматичного скріншота:', result.error);
+            
+            // При помилці показуємо нотифікацію з помилкою
+            try {
+                await chrome.notifications.create({
+                    type: 'basic',
+                    iconUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+                    title: 'Screenshot Sender - Помилка',
+                    message: `Помилка автоскріншота: ${result.error}`
+                });
+            } catch (notifError) {
+                console.log('Нотифікації недоступні:', notifError);
+            }
         }
     } catch (error) {
         console.error('Помилка при автоматичному скріншоті:', error);
@@ -277,10 +299,9 @@ async function uploadScreenshot(blob, uploadUrl, tabInfo = null) {
             formData.append('tabId', tabInfo.id ? tabInfo.id.toString() : '');
         }
         
-        // Додаємо тип скріншота (перевіряємо чи це автоскріншот)
-        chrome.alarms.get(ALARM_NAME, (alarm) => {
-            formData.append('type', alarm ? 'auto' : 'manual');
-        });
+        // Перевіряємо чи це автоскріншот
+        const settings = await getCurrentSettings();
+        formData.append('type', settings.enabled ? 'auto' : 'manual');
         
         formData.append('userAgent', navigator.userAgent);
         formData.append('extensionVersion', chrome.runtime.getManifest().version);
@@ -322,6 +343,7 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
         console.log('Зміни в storage:', changes);
         
         if (changes.autoCapture || changes.uploadUrl || changes.captureInterval) {
+            // Повторно ініціалізуємо при зміні налаштувань
             initializeAutoScreenshot();
         }
     }
@@ -332,9 +354,22 @@ chrome.runtime.onConnect.addListener((port) => {
     console.log('Розширення підключено');
 });
 
-// Додаємо обробник для керування stauts життєвого циклу
+// Додаємо обробник для керування status життєвого циклу Service Worker
 self.addEventListener('message', (event) => {
     console.log('Service Worker отримав повідомлення:', event.data);
 });
 
-console.log('Background script завантажено');
+// Функція для підтримки активності Service Worker
+function keepServiceWorkerAlive() {
+    setInterval(() => {
+        chrome.runtime.getPlatformInfo(() => {
+            // Просто викликаємо API щоб Service Worker не заснув
+        });
+    }, 20000); // Кожні 20 секунд
+}
+
+// Запускаємо підтримку активності
+keepServiceWorkerAlive();
+
+// Логування запуску
+console.log('Background script завантажено, час:', new Date().toLocaleString());
