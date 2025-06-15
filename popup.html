@@ -4,22 +4,35 @@
     <meta charset="utf-8">
     <style>
         body {
-            width: 300px;
-            padding: 20px;
+            width: 250px;
+            max-height: 400px;
+            padding: 15px;
             font-family: Arial, sans-serif;
+            margin: 0;
+            overflow-y: auto;
+            overflow-x: hidden;
         }
         .container {
             text-align: center;
+            overflow-y: auto;
+            overflow-x: hidden;
+            max-height: 50px;
+            /* min-height: fit-content; */
+        }
+        h3 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 16px;
         }
         button {
             background-color: #4CAF50;
             border: none;
             color: white;
-            padding: 15px 32px;
+            padding: 10px 20px;
             text-align: center;
             text-decoration: none;
             display: inline-block;
-            font-size: 16px;
+            font-size: 14px;
             margin: 4px 2px;
             cursor: pointer;
             border-radius: 4px;
@@ -32,19 +45,42 @@
             background-color: #cccccc;
             cursor: not-allowed;
         }
-        input {
+        input[type="url"] {
             width: 100%;
-            padding: 10px;
-            margin: 10px 0;
+            padding: 8px;
+            margin: 8px 0;
             border: 1px solid #ddd;
             border-radius: 4px;
             box-sizing: border-box;
+            font-size: 12px;
+        }
+        .auto-section {
+            margin: 8px 0;
+            font-size: 12px;
+        }
+        .auto-section label {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 5px;
+        }
+        .auto-section input[type="checkbox"] {
+            margin-right: 5px;
+        }
+        select {
+            padding: 4px;
+            font-size: 11px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            width: 100%;
+            margin-top: 5px;
         }
         .status {
-            margin-top: 10px;
-            padding: 10px;
+            margin-top: 8px;
+            padding: 6px;
             border-radius: 4px;
             display: none;
+            font-size: 11px;
         }
         .success {
             background-color: #d4edda;
@@ -56,20 +92,40 @@
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
+        #autoStatus {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #666;
+        }
+        /* Стилі для скролбара */
+        body::-webkit-scrollbar {
+            width: 6px;
+        }
+        body::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        body::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        body::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h3>Screenshot Sender</h3>
+        <h3>Screenshot Sender 1</h3>
         
-        <input type="url" id="urlInput" placeholder="https://arenda.moemysto.com.ua/screen/server.php" 
+        <input hidden type="url" id="urlInput" placeholder="https://arenda.moemysto.com.ua/screen/server.php" 
                title="URL для відправки скріншота" value="https://arenda.moemysto.com.ua/screen/server.php">
         
-        <div style="margin: 10px 0;">
+        <div  class="auto-section">
             <label>
                 <input type="checkbox" id="autoCapture"> Автоматичні скріншоти
             </label>
-            <select id="intervalSelect" style="margin-left: 10px; padding: 5px;">
+            <select id="intervalSelect">
                 <option value="60">кожну хвилину</option>
                 <option value="300">кожні 5 хвилин</option>
                 <option value="600">кожні 10 хвилин</option>
@@ -80,7 +136,7 @@
         
         <button id="captureBtn">Зробити скріншот</button>
         
-        <div id="autoStatus" style="margin-top: 10px; font-size: 12px; color: #666;"></div>
+        <div id="autoStatus"></div>
         
         <div id="status" class="status"></div>
     </div>
